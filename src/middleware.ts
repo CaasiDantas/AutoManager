@@ -28,14 +28,28 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession()
 
-  const isAuthPage = request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register'
+  // 1. DEFINIÇÃO DE ROTAS
+  const pathname = request.nextUrl.pathname
+  
+  // Rota do Webhook (Aberta para o WhatsApp/IA)
+  const isWebhook = pathname.startsWith('/api/webhook')
+  
+  // Rotas de Autenticação (Abertas para o usuário deslogado)
+  const isAuthPage = pathname === '/login' || pathname === '/register'
 
-  // 1. Se NÃO está logado e NÃO está nas páginas de auth -> Vai para o Login
+  // 2. LÓGICA DE PROTEÇÃO
+
+  // Se for o Webhook, deixa passar direto (sem checar sessão)
+  if (isWebhook) {
+    return response
+  }
+
+  // Se NÃO está logado e NÃO está tentando entrar no Login/Register -> Manda para o Login
   if (!session && !isAuthPage) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // 2. Se ESTÁ logado e tenta ir para Login ou Register -> Vai para a Home (Dashboard)
+  // Se ESTÁ logado e tenta ir para Login ou Register -> Manda para o Dashboard (Home)
   if (session && isAuthPage) {
     return NextResponse.redirect(new URL('/', request.url))
   }
@@ -43,6 +57,7 @@ export async function middleware(request: NextRequest) {
   return response
 }
 
+// O Matcher diz ao Next.js em quais arquivos o middleware deve rodar
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico|auth/callback).*)'],
 }
