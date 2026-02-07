@@ -30,13 +30,11 @@ export default function Dashboard() {
   useEffect(() => {
     async function getDashboardData() {
       const { data: { user } } = await supabase.auth.getUser()
-
       if (!user) {
         router.push('/login')
         return
       }
 
-      // 1. Busca o perfil vinculado (Aqui o empresa_id não virá mais null!)
       const { data: profile } = await supabase
         .from('profiles')
         .select('empresa_id')
@@ -44,18 +42,44 @@ export default function Dashboard() {
         .single()
 
       if (profile?.empresa_id) {
-        // 2. Busca os dados da empresa e agendamentos simultaneamente
-        const [empresaRes, agendamentosRes] = await Promise.all([
-          supabase.from('empresas').select('*').eq('id', profile.empresa_id).single(),
-          supabase.from('agendamentos').select('*, contatos(nome)').eq('empresa_id', profile.empresa_id)
-        ])
+        // Função para buscar agendamentos (será usada no Realtime também)
+        const fetchAgendamentos = async () => {
+          const [empresaRes, agendamentosRes] = await Promise.all([
+            supabase.from('empresas').select('*').eq('id', profile.empresa_id).single(),
+            supabase.from('agendamentos').select('*, contatos(nome)').eq('empresa_id', profile.empresa_id).order('data_hora', { ascending: true })
+          ])
 
-        if (empresaRes.data) {
-          setData({
-            nome_fantasia: empresaRes.data.nome_fantasia,
-            segmento: empresaRes.data.segmento,
-            agendamentos: agendamentosRes.data || []
-          })
+          if (empresaRes.data) {
+            setData({
+              nome_fantasia: empresaRes.data.nome_fantasia,
+              segmento: empresaRes.data.segmento,
+              agendamentos: agendamentosRes.data || []
+            })
+          }
+        }
+
+        await fetchAgendamentos()
+        setLoading(false)
+
+        // --- CONFIGURAÇÃO DO REALTIME ---
+        const channel = supabase
+          .channel('schema-db-changes')
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT', // Escuta novos agendamentos
+              schema: 'public',
+              table: 'agendamentos',
+              filter: `empresa_id=eq.${profile.empresa_id}`
+            },
+            () => {
+              fetchAgendamentos() // Atualiza os dados na tela na hora!
+            }
+          )
+          .subscribe()
+
+        return () => {
+          supabase.removeChannel(channel)
         }
       }
       setLoading(false)
